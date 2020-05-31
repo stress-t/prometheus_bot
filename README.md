@@ -28,6 +28,9 @@ make
     # ONLY IF YOU USING DATA FORMATTING FUNCTION, NOTE for developer: important or test fail
     time_outdata: "02/01/2006 15:04:05" 
     split_msg_byte: 4000
+    admins:
+      - 012345678
+      - 098765432
     ```
 
 3. Run ```telegram_bot```. See ```prometheus_bot --help``` for command line options
@@ -117,6 +120,9 @@ Example:
 -   ```HasKey```: Param:dict map, key_search string Search in map if there requeted key
 
 -    ```str_FormatDate```: Convert prometheus string date in your preferred date time format, config file param ```time_outdata``` could be used for setup your favourite format
+-    ```duration```: Calculate duration betwen start and end dates
+-    ```since```:
+
 Require more setting in your cofig.yaml
 ```yaml
 time_zone: "Europe/Rome"

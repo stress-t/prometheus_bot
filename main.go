@@ -1,4 +1,4 @@
-package main // import "github.com/inCaller/prometheus_bot"
+package main
 
 import (
 	"bytes"
@@ -18,7 +18,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"gopkg.in/telegram-bot-api.v4"
+	"github.com/hako/durafmt"
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
 	"gopkg.in/yaml.v2"
 
 	"html/template"
@@ -51,6 +52,8 @@ type Config struct {
 	TimeOutFormat     string `yaml:"time_outdata"`
 	SplitChart        string `yaml:"split_token"`
 	SplitMessageBytes int    `yaml:"split_msg_byte"`
+	Admins            []int  `yaml:"admins"`
+	admins            map[int]struct{}
 }
 
 /**
@@ -288,6 +291,23 @@ func HasKey(dict map[string]interface{}, key_search string) bool {
 	return false
 }
 
+func duration(start string, end string) string {
+	s, err := time.Parse(time.RFC3339Nano, start)
+	if err != nil {
+		fmt.Println(err)
+		return ""
+	}
+	e, err := time.Parse(time.RFC3339Nano, end)
+	if err != nil {
+		fmt.Println(err)
+		return ""
+	}
+	return durafmt.Parse(e.Sub(s)).String()
+}
+func since(t time.Time) string {
+	return durafmt.Parse(time.Since(t)).String()
+}
+
 // Global
 var config_path = flag.String("c", "config.yaml", "Path to a config file")
 var listen_addr = flag.String("l", ":9087", "Listen address")
@@ -308,6 +328,8 @@ var funcMap = template.FuncMap{
 	"str_Format_Byte":        str_Format_Byte,
 	"str_Format_MeasureUnit": str_Format_MeasureUnit,
 	"HasKey":                 HasKey,
+	"duration":               duration,
+	"since":                  since,
 }
 
 func telegramBot(bot *tgbotapi.BotAPI) {
@@ -318,19 +340,33 @@ func telegramBot(bot *tgbotapi.BotAPI) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	b := &Bot{
+		telegram: bot,
+	}
 
 	introduce := func(update tgbotapi.Update) {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Chat id is '%d'", update.Message.Chat.ID))
 		bot.Send(msg)
 	}
+	commands := map[string]func(message *tgbotapi.Message){
+		commandHelp:    b.handleHelp,
+		commandChatsID: b.handleChatsID,
+	}
 
 	for update := range updates {
+		if len(cfg.admins) > 0 {
+			if _, ok := cfg.admins[update.Message.From.ID]; !ok {
+				continue
+			}
+		}
 		if update.Message == nil {
 			if *debug {
 				log.Printf("[UNKNOWN_MESSAGE] [%v]", update)
 			}
 			continue
 		}
+		commandSuffix := fmt.Sprintf("@%s", bot.Self.UserName)
+		text := strings.Replace(update.Message.Text, commandSuffix, "", -1)
 
 		if update.Message.NewChatMembers != nil && len(*update.Message.NewChatMembers) > 0 {
 			for _, member := range *update.Message.NewChatMembers {
@@ -339,7 +375,14 @@ func telegramBot(bot *tgbotapi.BotAPI) {
 				}
 			}
 		} else if update.Message != nil && update.Message.Text != "" {
-			introduce(update)
+			//introduce(update.Message)
+			handler, ok := commands[text]
+			if !ok {
+				log.Printf("Unknown handler from user: %s ", update.Message.From)
+			} else {
+				handler(update.Message)
+			}
+
 		}
 	}
 }
@@ -394,6 +437,14 @@ func main() {
 
 	if cfg.SplitMessageBytes == 0 {
 		cfg.SplitMessageBytes = 4000
+	}
+	cfg.admins = make(map[int]struct{})
+	for _, j := range cfg.Admins {
+		cfg.admins[j] = struct{}{}
+	}
+	cfg.Admins = cfg.Admins[:0]
+	if len(cfg.admins) == 0 {
+		log.Println("Admins not set in config")
 	}
 
 	bot_tmp, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
